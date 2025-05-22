@@ -8,35 +8,70 @@ const supabaseKey = process.env.SUPABASE_ANON_KEY || ""
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const query = searchParams.get("query")
+  const productId = searchParams.get("id")
 
+  // Initialize Supabase client
+  const supabase = createClient(supabaseUrl, supabaseKey)
+
+  // If a specific product ID is provided, fetch that product
+  if (productId) {
+    try {
+      // Check if we have this product cached
+      const { data: cachedData } = await supabase
+        .from("nutrition_cache")
+        .select("nutrition_data")
+        .eq("product_id", productId)
+        .single()
+
+      // If we have cached nutrition data, return it
+      if (cachedData && cachedData.nutrition_data) {
+        return NextResponse.json(cachedData.nutrition_data)
+      }
+
+      // Fetch the specific product from Open Food Facts
+      const response = await fetch(`https://world.openfoodfacts.org/api/v0/product/${productId}.json`)
+
+      if (!response.ok) {
+        throw new Error(`Open Food Facts API responded with status: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      // Check if the product was found
+      if (!data.product) {
+        return NextResponse.json({ error: "Product not found", notFound: true }, { status: 404 })
+      }
+
+      // Transform the data to match our expected format
+      const nutritionData = transformOpenFoodFactsData(data.product)
+
+      // Cache the result in Supabase
+      await supabase.from("nutrition_cache").upsert(
+        {
+          product_id: productId,
+          food_name: data.product.product_name || "",
+          nutrition_data: nutritionData,
+          created_at: new Date().toISOString(),
+        },
+        { onConflict: "product_id" },
+      )
+
+      return NextResponse.json(nutritionData)
+    } catch (error) {
+      console.error("Error fetching product:", error)
+      return NextResponse.json({ error: "Failed to fetch product data" }, { status: 500 })
+    }
+  }
+
+  // Handle search query
   if (!query) {
     return NextResponse.json({ error: "Query parameter is required" }, { status: 400 })
   }
 
   const searchTerm = query.toLowerCase().trim()
 
-  // Initialize Supabase client
-  const supabase = createClient(supabaseUrl, supabaseKey)
-
-  // Check if we already have this item cached
   try {
-    const { data: cachedData } = await supabase
-      .from("nutrition_cache")
-      .select("nutrition_data")
-      .eq("food_name", searchTerm)
-      .single()
-
-    // If we have cached nutrition data, return it
-    if (cachedData && cachedData.nutrition_data) {
-      return NextResponse.json(cachedData.nutrition_data)
-    }
-  } catch (error) {
-    // Continue if no cached data is found
-    console.log("No cached data found for:", searchTerm)
-  }
-
-  try {
-    // Query the Open Food Facts API
+    // Query the Open Food Facts API for search results
     const response = await fetch(
       `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(
         searchTerm,
@@ -54,26 +89,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "No food products found", notFound: true }, { status: 404 })
     }
 
-    // Get the first product (most relevant match)
-    const product = data.products[0]
+    // Transform the search results to a simplified format
+    const searchResults = data.products.map((product: any) => ({
+      id: product.id || product._id || "",
+      name: product.product_name || product.generic_name || "",
+      brand: product.brands || "",
+      image: product.image_url || product.image_small_url || "",
+      quantity: product.quantity || "",
+      categories: product.categories || "",
+      nutriScore: product.nutriscore_grade || "",
+    }))
 
-    // Transform the data to match our expected format
-    const nutritionData = transformOpenFoodFactsData(product)
-
-    // Cache the result in Supabase
-    await supabase.from("nutrition_cache").upsert(
-      {
-        food_name: searchTerm,
-        nutrition_data: nutritionData,
-        created_at: new Date().toISOString(),
-      },
-      { onConflict: "food_name" },
-    )
-
-    return NextResponse.json(nutritionData)
+    return NextResponse.json({ results: searchResults })
   } catch (error) {
-    console.error("Error fetching from Open Food Facts:", error)
-    return NextResponse.json({ error: "Failed to fetch nutrition data from Open Food Facts" }, { status: 500 })
+    console.error("Error searching Open Food Facts:", error)
+    return NextResponse.json({ error: "Failed to search food products" }, { status: 500 })
   }
 }
 
@@ -154,6 +184,8 @@ function transformOpenFoodFactsData(product: any) {
     productName: product.product_name || product.generic_name || "",
     brand: product.brands || "",
     image: product.image_url || product.image_small_url || "",
+    categories: product.categories || "",
+    nutriScore: product.nutriscore_grade || "",
     dietLabels,
     healthLabels,
     nutrients,

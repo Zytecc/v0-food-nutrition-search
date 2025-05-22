@@ -2,6 +2,7 @@ import type React from "react"
 import "@/app/globals.css"
 import { Inter } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
+import { AuthProvider } from "@/components/auth/auth-provider"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -20,7 +21,9 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
-          <main className="min-h-screen bg-background">{children}</main>
+          <AuthProvider>
+            <main className="min-h-screen bg-background">{children}</main>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
