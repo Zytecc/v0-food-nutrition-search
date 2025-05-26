@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
+import { v4 as uuidv4 } from "uuid"
 import { useAuth } from "@/components/auth/auth-provider"
-import { createClientSide } from "@/lib/supabase"
 import { NavHeader } from "@/components/nav-header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,7 +23,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dumbbell, Plus, Trash2, Calendar, ChevronRight } from "lucide-react"
-import { DatabaseSetup } from "@/components/database-setup"
 
 interface Workout {
   id: string
@@ -32,7 +31,8 @@ interface Workout {
   notes: string | null
   duration: number | null
   created_at: string
-  exercise_count?: number
+  user_id: string
+  exercises: Exercise[]
 }
 
 interface Exercise {
@@ -49,17 +49,13 @@ interface Exercise {
 export default function WorkoutTracker() {
   const { user, isLoading } = useAuth()
   const router = useRouter()
-  const supabase = createClientSide()
 
   const [workouts, setWorkouts] = useState<Workout[]>([])
   const [selectedWorkout, setSelectedWorkout] = useState<Workout | null>(null)
-  const [exercises, setExercises] = useState<Exercise[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showNewWorkoutDialog, setShowNewWorkoutDialog] = useState(false)
   const [showExerciseDialog, setShowExerciseDialog] = useState(false)
-  const [tableExists, setTableExists] = useState(true)
-  const [setupAttempted, setSetupAttempted] = useState(false)
 
   // Form states
   const [newWorkout, setNewWorkout] = useState({
@@ -82,67 +78,36 @@ export default function WorkoutTracker() {
     if (!isLoading && !user) {
       router.push("/auth/login")
     } else if (user) {
-      fetchWorkouts()
+      loadWorkouts()
     }
   }, [user, isLoading, router])
 
-  const fetchWorkouts = async () => {
+  // Load workouts from localStorage
+  const loadWorkouts = () => {
     try {
       setLoading(true)
-      setError(null)
-
-      // Get workouts with exercise count
-      const { data, error } = await supabase
-        .from("workouts")
-        .select(`
-          *,
-          exercise_count:exercises(count)
-        `)
-        .order("date", { ascending: false })
-
-      if (error) {
-        // Check if the error is because the table doesn't exist
-        if (error.message.includes("does not exist") || error.code === "42P01") {
-          setTableExists(false)
-          return
-        }
-        throw error
+      const storedWorkouts = localStorage.getItem(`workouts_${user?.id}`)
+      if (storedWorkouts) {
+        const parsedWorkouts = JSON.parse(storedWorkouts) as Workout[]
+        setWorkouts(parsedWorkouts)
+      } else {
+        setWorkouts([])
       }
-
-      // Transform the data to get the exercise count
-      const workoutsWithCount = data.map((workout) => ({
-        ...workout,
-        exercise_count: workout.exercise_count?.[0]?.count || 0,
-      }))
-
-      setWorkouts(workoutsWithCount)
-      setTableExists(true)
     } catch (error) {
-      console.error("Error fetching workouts:", error)
+      console.error("Error loading workouts:", error)
       setError("Failed to load workouts")
     } finally {
       setLoading(false)
     }
   }
 
-  const fetchExercises = async (workoutId: string) => {
+  // Save workouts to localStorage
+  const saveWorkoutsToStorage = (updatedWorkouts: Workout[]) => {
     try {
-      setLoading(true)
-
-      const { data, error } = await supabase
-        .from("exercises")
-        .select("*")
-        .eq("workout_id", workoutId)
-        .order("created_at", { ascending: true })
-
-      if (error) throw error
-
-      setExercises(data || [])
+      localStorage.setItem(`workouts_${user?.id}`, JSON.stringify(updatedWorkouts))
     } catch (error) {
-      console.error("Error fetching exercises:", error)
-      setError("Failed to load exercises")
-    } finally {
-      setLoading(false)
+      console.error("Error saving workouts:", error)
+      setError("Failed to save workouts")
     }
   }
 
@@ -150,18 +115,20 @@ export default function WorkoutTracker() {
     try {
       setLoading(true)
 
-      const { data, error } = await supabase
-        .from("workouts")
-        .insert({
-          user_id: user?.id,
-          title: newWorkout.title,
-          date: newWorkout.date,
-          notes: newWorkout.notes || null,
-          duration: newWorkout.duration ? Number.parseInt(newWorkout.duration) : null,
-        })
-        .select()
+      const newWorkoutEntry: Workout = {
+        id: uuidv4(),
+        title: newWorkout.title,
+        date: newWorkout.date,
+        notes: newWorkout.notes || null,
+        duration: newWorkout.duration ? Number.parseInt(newWorkout.duration) : null,
+        created_at: new Date().toISOString(),
+        user_id: user?.id || "",
+        exercises: [],
+      }
 
-      if (error) throw error
+      const updatedWorkouts = [newWorkoutEntry, ...workouts]
+      setWorkouts(updatedWorkouts)
+      saveWorkoutsToStorage(updatedWorkouts)
 
       // Reset form and close dialog
       setNewWorkout({
@@ -171,9 +138,6 @@ export default function WorkoutTracker() {
         duration: "",
       })
       setShowNewWorkoutDialog(false)
-
-      // Refresh workouts
-      fetchWorkouts()
     } catch (error) {
       console.error("Error creating workout:", error)
       setError("Failed to create workout")
@@ -188,20 +152,31 @@ export default function WorkoutTracker() {
     try {
       setLoading(true)
 
-      const { data, error } = await supabase
-        .from("exercises")
-        .insert({
-          workout_id: selectedWorkout.id,
-          name: newExercise.name,
-          sets: Number.parseInt(newExercise.sets),
-          reps: Number.parseInt(newExercise.reps),
-          weight: newExercise.weight ? Number.parseFloat(newExercise.weight) : null,
-          weight_unit: newExercise.weight_unit,
-          notes: newExercise.notes || null,
-        })
-        .select()
+      const newExerciseEntry: Exercise = {
+        id: uuidv4(),
+        workout_id: selectedWorkout.id,
+        name: newExercise.name,
+        sets: Number.parseInt(newExercise.sets),
+        reps: Number.parseInt(newExercise.reps),
+        weight: newExercise.weight ? Number.parseFloat(newExercise.weight) : null,
+        weight_unit: newExercise.weight_unit,
+        notes: newExercise.notes || null,
+      }
 
-      if (error) throw error
+      const updatedWorkouts = workouts.map((workout) =>
+        workout.id === selectedWorkout.id
+          ? { ...workout, exercises: [...workout.exercises, newExerciseEntry] }
+          : workout,
+      )
+
+      setWorkouts(updatedWorkouts)
+      saveWorkoutsToStorage(updatedWorkouts)
+
+      // Update selected workout
+      const updatedSelectedWorkout = updatedWorkouts.find((w) => w.id === selectedWorkout.id)
+      if (updatedSelectedWorkout) {
+        setSelectedWorkout(updatedSelectedWorkout)
+      }
 
       // Reset form and close dialog
       setNewExercise({
@@ -213,10 +188,6 @@ export default function WorkoutTracker() {
         notes: "",
       })
       setShowExerciseDialog(false)
-
-      // Refresh exercises
-      fetchExercises(selectedWorkout.id)
-      fetchWorkouts() // To update exercise count
     } catch (error) {
       console.error("Error adding exercise:", error)
       setError("Failed to add exercise")
@@ -231,18 +202,14 @@ export default function WorkoutTracker() {
     try {
       setLoading(true)
 
-      const { error } = await supabase.from("workouts").delete().eq("id", workoutId)
-
-      if (error) throw error
+      const updatedWorkouts = workouts.filter((workout) => workout.id !== workoutId)
+      setWorkouts(updatedWorkouts)
+      saveWorkoutsToStorage(updatedWorkouts)
 
       // If the deleted workout was selected, clear selection
       if (selectedWorkout?.id === workoutId) {
         setSelectedWorkout(null)
-        setExercises([])
       }
-
-      // Refresh workouts
-      fetchWorkouts()
     } catch (error) {
       console.error("Error deleting workout:", error)
       setError("Failed to delete workout")
@@ -257,14 +224,19 @@ export default function WorkoutTracker() {
     try {
       setLoading(true)
 
-      const { error } = await supabase.from("exercises").delete().eq("id", exerciseId)
+      const updatedWorkouts = workouts.map((workout) =>
+        workout.id === selectedWorkout?.id
+          ? { ...workout, exercises: workout.exercises.filter((ex) => ex.id !== exerciseId) }
+          : workout,
+      )
 
-      if (error) throw error
+      setWorkouts(updatedWorkouts)
+      saveWorkoutsToStorage(updatedWorkouts)
 
-      // Refresh exercises
-      if (selectedWorkout) {
-        fetchExercises(selectedWorkout.id)
-        fetchWorkouts() // To update exercise count
+      // Update selected workout
+      const updatedSelectedWorkout = updatedWorkouts.find((w) => w.id === selectedWorkout?.id)
+      if (updatedSelectedWorkout) {
+        setSelectedWorkout(updatedSelectedWorkout)
       }
     } catch (error) {
       console.error("Error deleting exercise:", error)
@@ -276,12 +248,6 @@ export default function WorkoutTracker() {
 
   const selectWorkout = (workout: Workout) => {
     setSelectedWorkout(workout)
-    fetchExercises(workout.id)
-  }
-
-  const handleSetupComplete = () => {
-    setSetupAttempted(true)
-    fetchWorkouts()
   }
 
   // Show loading state while checking authentication
@@ -299,33 +265,6 @@ export default function WorkoutTracker() {
   // If not authenticated and not loading, don't render anything
   if (!user) {
     return null
-  }
-
-  // If the table doesn't exist, show the setup component
-  if (!tableExists) {
-    return (
-      <>
-        <NavHeader />
-        <div className="container mx-auto py-8 px-4">
-          <h1 className="text-3xl font-bold mb-8">Workout Tracker</h1>
-          <DatabaseSetup onSetupComplete={handleSetupComplete} />
-
-          {setupAttempted && (
-            <div className="mt-6">
-              <Alert variant="info" className="mb-6">
-                <AlertDescription>
-                  If you've completed the setup but still see this message, please refresh the page. If the issue
-                  persists, double-check that the SQL script executed successfully in your Supabase dashboard.
-                </AlertDescription>
-              </Alert>
-              <div className="flex justify-center">
-                <Button onClick={() => window.location.reload()}>Refresh Page</Button>
-              </div>
-            </div>
-          )}
-        </div>
-      </>
-    )
   }
 
   return (
@@ -423,39 +362,41 @@ export default function WorkoutTracker() {
                   </div>
                 ) : (
                   <div className="divide-y">
-                    {workouts.map((workout) => (
-                      <div
-                        key={workout.id}
-                        className={`p-4 flex justify-between items-center cursor-pointer hover:bg-muted/50 ${
-                          selectedWorkout?.id === workout.id ? "bg-muted" : ""
-                        }`}
-                        onClick={() => selectWorkout(workout)}
-                      >
-                        <div>
-                          <div className="font-medium">{workout.title}</div>
-                          <div className="text-sm text-muted-foreground flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            {format(new Date(workout.date), "MMM d, yyyy")}
+                    {workouts
+                      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                      .map((workout) => (
+                        <div
+                          key={workout.id}
+                          className={`p-4 flex justify-between items-center cursor-pointer hover:bg-muted/50 ${
+                            selectedWorkout?.id === workout.id ? "bg-muted" : ""
+                          }`}
+                          onClick={() => selectWorkout(workout)}
+                        >
+                          <div>
+                            <div className="font-medium">{workout.title}</div>
+                            <div className="text-sm text-muted-foreground flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              {format(new Date(workout.date), "MMM d, yyyy")}
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              {workout.exercises.length} exercise{workout.exercises.length !== 1 ? "s" : ""}
+                            </div>
                           </div>
-                          <div className="text-xs text-muted-foreground mt-1">
-                            {workout.exercise_count} exercise{workout.exercise_count !== 1 ? "s" : ""}
+                          <div className="flex items-center">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDeleteWorkout(workout.id)
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                            <ChevronRight className="h-5 w-5 text-muted-foreground" />
                           </div>
                         </div>
-                        <div className="flex items-center">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDeleteWorkout(workout.id)
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4 text-muted-foreground" />
-                          </Button>
-                          <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                        </div>
-                      </div>
-                    ))}
+                      ))}
                   </div>
                 )}
               </CardContent>
@@ -573,7 +514,7 @@ export default function WorkoutTracker() {
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
                       <p className="mt-2 text-sm text-muted-foreground">Loading exercises...</p>
                     </div>
-                  ) : exercises.length === 0 ? (
+                  ) : selectedWorkout.exercises.length === 0 ? (
                     <div className="text-center py-8">
                       <Dumbbell className="h-12 w-12 mx-auto text-muted-foreground opacity-50" />
                       <h3 className="mt-4 font-medium">No exercises added yet</h3>
@@ -591,7 +532,7 @@ export default function WorkoutTracker() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {exercises.map((exercise) => (
+                        {selectedWorkout.exercises.map((exercise) => (
                           <TableRow key={exercise.id}>
                             <TableCell className="font-medium">
                               {exercise.name}

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { NavHeader } from "@/components/nav-header"
-import { Search, History, LogOut, BookText, Calendar } from "lucide-react"
+import { Search, History, LogOut, BookText, Calendar, Dumbbell } from "lucide-react"
 
 export default function Dashboard() {
   const { user, isLoading, signOut } = useAuth()
@@ -51,7 +51,7 @@ export default function Dashboard() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle>Welcome back!</CardTitle>
@@ -101,6 +101,25 @@ export default function Dashboard() {
               </Button>
             </CardFooter>
           </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle>Workout Tracker</CardTitle>
+              <CardDescription>Track your exercises</CardDescription>
+            </CardHeader>
+            <CardContent className="pb-2">
+              <p className="text-sm text-muted-foreground">
+                Log your workouts and track your exercise progress over time.
+              </p>
+            </CardContent>
+            <CardFooter>
+              <Button asChild className="w-full">
+                <Link href="/workouts">
+                  <Dumbbell className="mr-2 h-4 w-4" /> Track Workouts
+                </Link>
+              </Button>
+            </CardFooter>
+          </Card>
         </div>
 
         <Tabs defaultValue="features">
@@ -110,7 +129,7 @@ export default function Dashboard() {
             <TabsTrigger value="stats">Stats</TabsTrigger>
           </TabsList>
           <TabsContent value="features" className="p-4 border rounded-md mt-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="flex flex-col items-center text-center p-4">
                 <div className="bg-primary/10 p-3 rounded-full mb-4">
                   <Search className="h-6 w-6 text-primary" />
@@ -118,6 +137,15 @@ export default function Dashboard() {
                 <h3 className="font-medium mb-2">Food Search</h3>
                 <p className="text-sm text-muted-foreground">
                   Search for any food to get detailed nutrition information from Open Food Facts database.
+                </p>
+              </div>
+              <div className="flex flex-col items-center text-center p-4">
+                <div className="bg-primary/10 p-3 rounded-full mb-4">
+                  <Dumbbell className="h-6 w-6 text-primary" />
+                </div>
+                <h3 className="font-medium mb-2">Workout Tracker</h3>
+                <p className="text-sm text-muted-foreground">
+                  Log your workouts and track your exercise progress with detailed exercise logs.
                 </p>
               </div>
               <div className="flex flex-col items-center text-center p-4">

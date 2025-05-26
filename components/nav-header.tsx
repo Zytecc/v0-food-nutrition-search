@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { LogIn, User, ChevronDown, Search, BookText, Home } from "lucide-react"
+import { LogIn, User, ChevronDown, Search, BookText, Home, Dumbbell } from "lucide-react"
 
 export function NavHeader() {
   const { user } = useAuth()
@@ -57,6 +57,12 @@ export function NavHeader() {
                     <Link href="/journal" className="flex items-center gap-2 cursor-pointer">
                       <BookText className="h-4 w-4" />
                       Journal
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/workouts" className="flex items-center gap-2 cursor-pointer">
+                      <Dumbbell className="h-4 w-4" />
+                      Workouts
                     </Link>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
